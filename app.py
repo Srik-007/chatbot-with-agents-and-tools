@@ -7,6 +7,9 @@ from langchain_community.callbacks import StreamlitCallbackHandler
 from langchain.memory import ConversationBufferWindowMemory
 import os
 from dotenv import load_dotenv
+import re
+def clean_response(text):
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 # Load environment variables
 load_dotenv()
@@ -105,7 +108,7 @@ if prompt := st.chat_input(placeholder="What is machine learning?"):
                 },
                 callbacks=[st_cb]
             )
-            
+            response=clean_response(response)
             st.session_state.messages.append(
                 {"role": "assistant", "content": response}
             )
@@ -116,3 +119,4 @@ if prompt := st.chat_input(placeholder="What is machine learning?"):
         st.session_state.messages.append(
             {"role": "assistant", "content": f"Sorry, I encountered an error: {str(e)}"}
         )
+
