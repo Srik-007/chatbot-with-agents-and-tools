@@ -1,42 +1,47 @@
 import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_community.utilities import ArxivAPIWrapper, WikipediaAPIWrapper
-from langchain_community.tools import ArxivQueryRun, WikipediaQueryRun
-from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_community.tools import ArxivQueryRun, WikipediaQueryRun, DuckDuckGoSearchRun
 from langchain.agents import initialize_agent, AgentType
 from langchain_community.callbacks import StreamlitCallbackHandler
+from langchain.memory import ConversationBufferWindowMemory  # <-- Add memory
 import os
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 groq_api_key = os.getenv("GROQ_API_KEY")
-hf_key = os.getenv("HF_KEY")
 
-# Initialize tools with proper configurations
+# Initialize tools
 apiwrap_arxiv = ArxivAPIWrapper(top_k_results=1, doc_content_chars_max=500)
 arxi = ArxivQueryRun(api_wrapper=apiwrap_arxiv, name="Arxiv Search")
-
 apiwrap_wiki = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=500)
 wiki = WikipediaQueryRun(api_wrapper=apiwrap_wiki, name="Wikipedia Search")
-
 search = DuckDuckGoSearchRun(name="Web Search")
 
 # Set up Streamlit page
 st.set_page_config(
-    page_title="AI Chatbot", 
+    page_title="AI Chatbot with Memory", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Initialize session state for messages
+# Initialize session state for messages and memory
 if "messages" not in st.session_state:
-    st.session_state["messages"] = [
+    st.session_state.messages = [
         {
             "role": "assistant", 
             "content": "Hi, I'm a chatbot who can search the web, academic papers, and Wikipedia. How can I help you?"
         }
     ]
+    
+if "memory" not in st.session_state:
+    # Keep last 5 messages in memory
+    st.session_state.memory = ConversationBufferWindowMemory(
+        memory_key="chat_history",
+        k=2000000,
+        return_messages=True
+    )
 
 # Display chat messages
 for msg in st.session_state.messages:
@@ -51,7 +56,7 @@ llm_model = st.sidebar.selectbox(
         "moonshotai/kimi-k2-instruct",
         "meta-llama/llama-4-scout-17b-16e-instruct"
     ],
-    index=0  # Default to first option
+    index=0
 )
 
 # Chat input and processing
@@ -66,32 +71,36 @@ if prompt := st.chat_input(placeholder="What is machine learning?"):
             api_key=groq_api_key,
             model=llm_model,
             streaming=True,
-            temperature=0.3  # Added for more focused responses
         )
         
         # Set up tools
         tools = [search, arxi, wiki]
         
-        # Initialize agent with better error handling
+        # Initialize agent with memory
         search_agent = initialize_agent(
             tools=tools,
             llm=llm,
-            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,  # Better for complex cases
+            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
             handle_parsing_errors=True,
             verbose=True,
-            max_iterations=3,
-            early_stopping_method="generate"  # Allows natural responses when tools aren't needed
+            memory=st.session_state.memory,  # Add memory to agent
+            agent_kwargs={
+                "input_variables": ["input", "chat_history", "agent_scratchpad"]
+            }
         )
         
         # Generate and display assistant response
         with st.chat_message("assistant"):
             st_cb = StreamlitCallbackHandler(
                 st.container(),
-                expand_new_thoughts=False
+                expand_new_thoughts=True
             )
             
             response = search_agent.run(
-                {"input": prompt},  # Pass as dict for better compatibility
+                {
+                    "input": prompt,
+                    "chat_history": st.session_state.memory.buffer  # Pass chat history
+                },
                 callbacks=[st_cb]
             )
             
@@ -99,10 +108,3 @@ if prompt := st.chat_input(placeholder="What is machine learning?"):
                 {"role": "assistant", "content": response}
             )
             st.write(response)
-            
-    except Exception as e:
-        st.error(f"An error occurred: {str(e)}")
-        st.session_state.messages.append(
-            {"role": "assistant", "content": f"Sorry, I encountered an error: {str(e)}"}
-        )
-
