@@ -19,4 +19,6 @@ duckdb
 pandas
 streamlit
 langchain-ollama
+duckduckgo-search
+
 
