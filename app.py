@@ -76,10 +76,11 @@ if prompt := st.chat_input(placeholder="What is machine learning?"):
         search_agent = initialize_agent(
             tools=tools,
             llm=llm,
-            agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-            handle_parsing_errors=True,  # Fixed parameter name
+            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,  # Better for complex cases
+            handle_parsing_errors=True,
             verbose=True,
-            max_iterations=5  # Prevent long-running operations
+            max_iterations=3,
+            early_stopping_method="generate"  # Allows natural responses when tools aren't needed
         )
         
         # Generate and display assistant response
@@ -104,3 +105,4 @@ if prompt := st.chat_input(placeholder="What is machine learning?"):
         st.session_state.messages.append(
             {"role": "assistant", "content": f"Sorry, I encountered an error: {str(e)}"}
         )
+
