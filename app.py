@@ -65,46 +65,46 @@ if prompt := st.chat_input(placeholder="What is machine learning?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.chat_message("user").write(prompt)
     
-    try:
-        # Initialize LLM
-        llm = ChatGroq(
-            api_key=groq_api_key,
-            model=llm_model,
-            streaming=True,
-        )
-        
-        # Set up tools
-        tools = [search, arxi, wiki]
-        
-        # Initialize agent with memory
-        search_agent = initialize_agent(
-            tools=tools,
-            llm=llm,
-            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
-            handle_parsing_errors=True,
-            verbose=True,
-            memory=st.session_state.memory,  # Add memory to agent
-            agent_kwargs={
-                "input_variables": ["input", "chat_history", "agent_scratchpad"]
-            }
-        )
-        
-        # Generate and display assistant response
-        with st.chat_message("assistant"):
-            st_cb = StreamlitCallbackHandler(
-                st.container(),
-                expand_new_thoughts=True
-            )
-            
-            response = search_agent.run(
-                {
-                    "input": prompt,
-                    "chat_history": st.session_state.memory.buffer  # Pass chat history
-                },
-                callbacks=[st_cb]
-            )
-            
-            st.session_state.messages.append(
-                {"role": "assistant", "content": response}
-            )
-            st.write(response)
+# Initialize LLM
+llm = ChatGroq(
+    api_key=groq_api_key,
+    model=llm_model,
+    streaming=True,
+)
+
+# Set up tools
+tools = [search, arxi, wiki]
+
+# Initialize agent with memory
+search_agent = initialize_agent(
+    tools=tools,
+    llm=llm,
+    agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+    handle_parsing_errors=True,
+    verbose=True,
+    memory=st.session_state.memory,  # Add memory to agent
+    agent_kwargs={
+        "input_variables": ["input", "chat_history", "agent_scratchpad"]
+    }
+)
+
+# Generate and display assistant response
+with st.chat_message("assistant"):
+    st_cb = StreamlitCallbackHandler(
+        st.container(),
+        expand_new_thoughts=True
+    )
+    
+    response = search_agent.run(
+        {
+            "input": prompt,
+            "chat_history": st.session_state.memory.buffer  # Pass chat history
+        },
+        callbacks=[st_cb]
+    )
+    
+    st.session_state.messages.append(
+        {"role": "assistant", "content": response}
+    )
+    st.write(response)
+
