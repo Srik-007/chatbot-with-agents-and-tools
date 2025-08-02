@@ -1,115 +1,53 @@
+
 import streamlit as st
-from langchain_groq import ChatGroq
-from langchain_community.utilities import ArxivAPIWrapper, WikipediaAPIWrapper
-from langchain_community.tools import ArxivQueryRun, WikipediaQueryRun, DuckDuckGoSearchRun
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain.agents import initialize_agent, AgentType
-from langchain_community.callbacks import StreamlitCallbackHandler
-from langchain.memory import ConversationBufferMemory
-import os
-from dotenv import load_dotenv
-import re
+from langchain.tools import Tool
+from langchain_community.tools import DuckDuckGoSearchRun
+from langchain.chat_models import ChatOpenAI
+from langchain.callbacks.streamlit import StreamlitCallbackHandler
 
-# === Cleaning function ===
-def clean_response(text):
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    return re.sub(r"\n{3,}", "\n\n", cleaned)
+# Basic setup
+st.set_page_config(page_title="AI Chatbot with Memory", layout="wide")
+st.title("🤖 Chatbot with Memory")
 
-# === Load environment variables ===
-load_dotenv()
-groq_api_key = os.getenv("GROQ_API_KEY")
-
-# === Setup Streamlit page ===
-st.set_page_config(
-    page_title="AI Chatbot with Memory", 
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# === Initialize chat message history ===
+# Session state initialization
 if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {
-            "role": "assistant", 
-            "content": "Hi, I'm a chatbot who can search the web, academic papers, and Wikipedia. How can I help you?"
-        }
-    ]
+    st.session_state.messages = []
 
-# === Initialize memory ===
-if "memory" not in st.session_state:
-    st.session_state.memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True
-    )
-
-# === Display previous chat messages ===
+# Show chat history
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.write(msg["content"])
+    role = "assistant" if isinstance(msg, AIMessage) else "user"
+    with st.chat_message(role):
+        st.markdown(msg.content)
 
-# === Sidebar: Model selection ===
-llm_model = st.sidebar.selectbox(
-    "Select a model",
-    options=[
-        "deepseek-r1-distill-llama-70b",
-        "moonshotai/kimi-k2-instruct",
-        "meta-llama/llama-4-scout-17b-16e-instruct"
-    ],
-    index=0
+# LLM and tools setup
+llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+search = DuckDuckGoSearchRun()
+tools = [Tool(name="DuckDuckGo Search", func=search.run, description="Search the web")]
+
+# Agent setup
+agent_executor = initialize_agent(
+    tools=tools,
+    llm=llm,
+    agent=AgentType.OPENAI_FUNCTIONS,
+    verbose=True,
 )
 
-# === Initialize tools ===
-arxiv_tool = ArxivQueryRun(
-    api_wrapper=ArxivAPIWrapper(top_k_results=1, doc_content_chars_max=500),
-    name="Arxiv Search"
-)
-wiki_tool = WikipediaQueryRun(
-    api_wrapper=WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=500),
-    name="Wikipedia Search"
-)
-search_tool = DuckDuckGoSearchRun(name="Web Search")
-
-tools = [search_tool, arxiv_tool, wiki_tool]
-
-# === Handle user input ===
-if prompt := st.chat_input(placeholder="Ask me something..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+# User input
+if prompt := st.chat_input("Ask me something..."):
+    # Store user message
+    st.session_state.messages.append(HumanMessage(content=prompt))
     with st.chat_message("user"):
-        st.write(prompt)
+        st.markdown(prompt)
 
-    try:
-        # === Initialize LLM ===
-        llm = ChatGroq(
-            api_key=groq_api_key,
-            model=llm_model,
-            streaming=True,
-            temperature=0.3
-        )
+    # Show AI response container
+    with st.chat_message("assistant"):
+        st_cb = StreamlitCallbackHandler(st.container())
 
-        # === Initialize agent with memory ===
-        search_agent = initialize_agent(
-            tools=tools,
-            llm=llm,
-            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
-            handle_parsing_errors=True,
-            verbose=True,
-            memory=st.session_state.memory,
-            max_iterations=5
-        )
+        # Run agent with full context
+        full_context = "\n".join([m.content for m in st.session_state.messages])
+        response = agent_executor.run(full_context, callbacks=[st_cb])
 
-        # === Generate and show response ===
-        with st.chat_message("assistant"):
-            st_cb = StreamlitCallbackHandler(st.container(), expand_new_thoughts=True)
-            response = search_agent.run(prompt, callbacks=[st_cb])
-            response = clean_response(response)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            st.write(response)
-
-    except Exception as e:
-        error_msg = f"Sorry, I encountered an error: {str(e)}"
-        st.error(error_msg)
-        st.session_state.messages.append({"role": "assistant", "content": error_msg})
-
-# === (Optional) Show memory debug info ===
-with st.sidebar.expander("🧠 Conversation Memory", expanded=False):
-    for m in st.session_state.memory.chat_memory.messages:
-        st.write(f"**{m.type.capitalize()}**: {m.content}")
+        st.markdown(response)
+        st.session_state.messages.append(AIMessage(content=response))
