@@ -4,7 +4,7 @@ from langchain_community.utilities import ArxivAPIWrapper, WikipediaAPIWrapper
 from langchain_community.tools import ArxivQueryRun, WikipediaQueryRun, DuckDuckGoSearchRun
 from langchain.agents import initialize_agent, AgentType
 from langchain_community.callbacks import StreamlitCallbackHandler
-from langchain.memory import ConversationBufferWindowMemory  # <-- Add memory
+from langchain.memory import ConversationBufferWindowMemory
 import os
 from dotenv import load_dotenv
 
@@ -36,10 +36,10 @@ if "messages" not in st.session_state:
     ]
     
 if "memory" not in st.session_state:
-    # Keep last 5 messages in memory
+    # Keep last 5 messages in memory (more reasonable than 2,000,000)
     st.session_state.memory = ConversationBufferWindowMemory(
         memory_key="chat_history",
-        k=2000000,
+        k=5,
         return_messages=True
     )
 
@@ -65,46 +65,54 @@ if prompt := st.chat_input(placeholder="What is machine learning?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.chat_message("user").write(prompt)
     
-# Initialize LLM
-llm = ChatGroq(
-    api_key=groq_api_key,
-    model=llm_model,
-    streaming=True,
-)
-
-# Set up tools
-tools = [search, arxi, wiki]
-
-# Initialize agent with memory
-search_agent = initialize_agent(
-    tools=tools,
-    llm=llm,
-    agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
-    handle_parsing_errors=True,
-    verbose=True,
-    memory=st.session_state.memory,  # Add memory to agent
-    agent_kwargs={
-        "input_variables": ["input", "chat_history", "agent_scratchpad"]
-    }
-)
-
-# Generate and display assistant response
-with st.chat_message("assistant"):
-    st_cb = StreamlitCallbackHandler(
-        st.container(),
-        expand_new_thoughts=True
-    )
-    
-    response = search_agent.run(
-        {
-            "input": prompt,
-            "chat_history": st.session_state.memory.buffer  # Pass chat history
-        },
-        callbacks=[st_cb]
-    )
-    
-    st.session_state.messages.append(
-        {"role": "assistant", "content": response}
-    )
-    st.write(response)
-
+    try:
+        # Initialize LLM (moved inside the if block to avoid unnecessary initialization)
+        llm = ChatGroq(
+            api_key=groq_api_key,
+            model=llm_model,
+            streaming=True,
+            temperature=0.3
+        )
+        
+        # Set up tools
+        tools = [search, arxi, wiki]
+        
+        # Initialize agent with memory
+        search_agent = initialize_agent(
+            tools=tools,
+            llm=llm,
+            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+            handle_parsing_errors=True,
+            verbose=True,
+            max_iterations=5,  # Added to prevent infinite loops
+            memory=st.session_state.memory,
+            agent_kwargs={
+                "input_variables": ["input", "chat_history", "agent_scratchpad"]
+            }
+        )
+        
+        # Generate and display assistant response
+        with st.chat_message("assistant"):
+            st_cb = StreamlitCallbackHandler(
+                st.container(),
+                expand_new_thoughts=True
+            )
+            
+            response = search_agent.run(
+                {
+                    "input": prompt,
+                    "chat_history": st.session_state.memory.buffer_as_messages  # Use buffer_as_messages
+                },
+                callbacks=[st_cb]
+            )
+            
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response}
+            )
+            st.write(response)
+            
+    except Exception as e:
+        st.error(f"An error occurred: {str(e)}")
+        st.session_state.messages.append(
+            {"role": "assistant", "content": f"Sorry, I encountered an error: {str(e)}"}
+        )
